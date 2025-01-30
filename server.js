@@ -6,6 +6,7 @@ const userRoutes = require('./routes/userRoutes');
 const transactionRoutes = require('./routes/transactionRoutes');
 const categoryRoutes = require('./routes/categoryRoutes');
 const personRoutes = require('./routes/personRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
 const { connectDB } = require('./config/db');
 
 const app = express();
@@ -17,10 +18,11 @@ connectDB()
 // Middleware 
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json()); 
 
 // Routes
 app.use('/api/auth', userRoutes);
+app.use('/api', paymentRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/persons', personRoutes);

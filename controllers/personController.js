@@ -65,14 +65,45 @@ const personController = {
     // Delete person
     delete: async (req, res) => {
         try {
-            const person = await Person.findByPk(req.params.id);
+            const personId = req.params.id;
+            
+            // First check if person exists
+            const person = await Person.findOne({
+                where: { id: personId }
+            });
+
             if (!person) {
-                return res.status(404).json({ message: 'Person not found' });
+                return res.status(404).json({
+                    success: false,
+                    message: 'Person not found'
+                });
             }
+
+            // Check if person has transactions
+            const transactionCount = await Transaction.count({
+                where: { PersonId: personId }
+            });
+
+            if (transactionCount > 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Cannot delete person with existing transactions. Please reassign or delete the transactions first.'
+                });
+            }
+
+            // If no transactions, proceed with deletion
             await person.destroy();
-            res.json({ message: 'Person deleted successfully' });
+
+            res.json({
+                success: true,
+                message: 'Person deleted successfully'
+            });
         } catch (error) {
-            res.status(500).json({ error: error.message });
+            console.error('Error deleting person:', error);
+            res.status(500).json({
+                success: false,
+                message: error.message
+            });
         }
     }
 };

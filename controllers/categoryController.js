@@ -1,4 +1,4 @@
-const { Category } = require('../models');
+const { Category, Transaction } = require('../models');
 
 const categoryController = {
     // Create category
@@ -53,14 +53,47 @@ const categoryController = {
     // Delete category
     delete: async (req, res) => {
         try {
-            const category = await Category.findByPk(req.params.id);
+            const categoryId = req.params.id;
+            
+            // First check if category exists
+            const category = await Category.findOne({
+                where: { 
+                    id: categoryId,
+                }
+            });
+
             if (!category) {
-                return res.status(404).json({ message: 'Category not found' });
+                return res.status(404).json({
+                    success: false,
+                    message: 'Category not found'
+                });
             }
+
+            // Check if category has transactions
+            const transactionCount = await Transaction.count({
+                where: { CategoryId: categoryId }
+            });
+
+            if (transactionCount > 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Cannot delete category with existing transactions. Please reassign or delete the transactions first.'
+                });
+            }
+
+            // If no transactions, proceed with deletion
             await category.destroy();
-            res.json({ message: 'Category deleted successfully' });
+
+            res.json({
+                success: true,
+                message: 'Category deleted successfully'
+            });
         } catch (error) {
-            res.status(500).json({ error: error.message });
+            console.error('Error deleting category:', error);
+            res.status(500).json({
+                success: false,
+                message: error.message
+            });
         }
     },
 

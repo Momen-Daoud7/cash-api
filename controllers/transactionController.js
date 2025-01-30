@@ -1,4 +1,4 @@
-const { Transaction, Category, Person } = require('../models');
+const { Transaction, Category, Person, Payment } = require('../models');
 const { parseUserInput } = require('../services/aiService');
 const { Op } = require('sequelize');
 const sequelize = require('sequelize');
@@ -356,47 +356,77 @@ const getExpenses = async (req, res) => {
 const getBorrowedDebts = async (req, res) => {
     try {
         const { period, startDate, endDate } = req.query;
-        const dateFilter = getDateRange(period, startDate, endDate);
+        let dateFilter = {};
+        
+        if (period || (startDate && endDate)) {
+            dateFilter = getDateRange(period, startDate, endDate);
+        }
 
-        console.log('Query Parameters:', {
-            period,
-            startDate,
-            endDate,
-            dateFilter,
-            userId: req.user.id
-        });
-
-        const borrowedDebts = await Transaction.findAll({
+        const debts = await Transaction.findAll({
             where: {
                 type: 'debt',
                 debtType: 'borrowed',
                 UserId: req.user.id,
-                date: dateFilter
+                ...(Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {})
             },
-            include: [{
-                model: Person,
-                attributes: ['id', 'name']
-            }],
+            include: [
+                {
+                    model: Person,
+                    attributes: ['id', 'name']
+                },
+                {
+                    model: Payment,
+                    as: 'Payments',
+                    attributes: ['amount']
+                }
+            ],
             order: [['date', 'DESC']]
         });
 
-        console.log('Found Borrowed Debts:', borrowedDebts);
+        // Calculate totals
+        let totalBorrowed = 0;
+        let totalPaid = 0;
 
-        const total = borrowedDebts.reduce((sum, debt) => sum + Number(debt.amount), 0);
+        const formattedDebts = debts.map(debt => {
+            const partial_payment = debt.Payments ? 
+                debt.Payments.reduce((sum, payment) => sum + Number(payment.amount), 0) : 0;
+
+            totalBorrowed += Number(debt.amount);
+            totalPaid += partial_payment;
+
+            return {
+                id: debt.id,
+                amount: Number(debt.amount),
+                type: debt.type,
+                debtType: debt.debtType,
+                date: debt.date,
+                description: debt.description,
+                paymentStatus: debt.paymentStatus,
+                Person: debt.Person,
+                partial_payment: partial_payment,
+                remaining_amount: Number(debt.amount) - partial_payment,
+                createdAt: debt.createdAt,
+                updatedAt: debt.updatedAt
+            };
+        });
 
         res.json({
             success: true,
-            data: borrowedDebts,
-            total,
+            data: formattedDebts,
+            summary: {
+                total_borrowed: totalBorrowed,
+                total_paid: totalPaid,
+                total_remaining: totalBorrowed - totalPaid
+            },
             period: period || 'all',
             dateRange: {
                 start: startDate || 'none',
                 end: endDate || 'none'
             }
         });
+
     } catch (error) {
         console.error('Error fetching borrowed debts:', error);
-        console.error('Full error object:', JSON.stringify(error, null, 2));
         res.status(500).json({
             success: false,
             message: error.message
@@ -408,47 +438,77 @@ const getBorrowedDebts = async (req, res) => {
 const getLentDebts = async (req, res) => {
     try {
         const { period, startDate, endDate } = req.query;
-        const dateFilter = getDateRange(period, startDate, endDate);
+        let dateFilter = {};
+        
+        if (period || (startDate && endDate)) {
+            dateFilter = getDateRange(period, startDate, endDate);
+        }
 
-        console.log('Query Parameters:', {
-            period,
-            startDate,
-            endDate,
-            dateFilter,
-            userId: req.user.id
-        });
-
-        const lentDebts = await Transaction.findAll({
+        const debts = await Transaction.findAll({
             where: {
                 type: 'debt',
                 debtType: 'lent',
                 UserId: req.user.id,
-                date: dateFilter
+                ...(Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {})
             },
-            include: [{
-                model: Person,
-                attributes: ['id', 'name']
-            }],
+            include: [
+                {
+                    model: Person,
+                    attributes: ['id', 'name']
+                },
+                {
+                    model: Payment,
+                    as: 'Payments',
+                    attributes: ['amount']
+                }
+            ],
             order: [['date', 'DESC']]
         });
 
-        console.log('Found Lent Debts:', lentDebts);
+        // Calculate totals
+        let totalLent = 0;
+        let totalPaid = 0;
 
-        const total = lentDebts.reduce((sum, debt) => sum + Number(debt.amount), 0);
+        const formattedDebts = debts.map(debt => {
+            const partial_payment = debt.Payments ? 
+                debt.Payments.reduce((sum, payment) => sum + Number(payment.amount), 0) : 0;
+
+            totalLent += Number(debt.amount);
+            totalPaid += partial_payment;
+
+            return {
+                id: debt.id,
+                amount: Number(debt.amount),
+                type: debt.type,
+                debtType: debt.debtType,
+                date: debt.date,
+                description: debt.description,
+                paymentStatus: debt.paymentStatus,
+                Person: debt.Person,
+                partial_payment: partial_payment,
+                remaining_amount: Number(debt.amount) - partial_payment,
+                createdAt: debt.createdAt,
+                updatedAt: debt.updatedAt
+            };
+        });
 
         res.json({
             success: true,
-            data: lentDebts,
-            total,
+            data: formattedDebts,
+            summary: {
+                total_lent: totalLent,
+                total_paid: totalPaid,
+                total_remaining: totalLent - totalPaid
+            },
             period: period || 'all',
             dateRange: {
                 start: startDate || 'none',
                 end: endDate || 'none'
             }
         });
+
     } catch (error) {
         console.error('Error fetching lent debts:', error);
-        console.error('Full error object:', JSON.stringify(error, null, 2));
         res.status(500).json({
             success: false,
             message: error.message
@@ -458,56 +518,141 @@ const getLentDebts = async (req, res) => {
 
 const getAllDebts = async (req, res) => {
     try {
-        const { status, type, search } = req.query;
+        const { period } = req.query;
         
-        // Base where condition
-        const whereCondition = {
+        const whereClause = {
             type: 'debt',
-            userId: req.user.id
+            UserId: req.user.id
         };
 
-        // Add status filter if provided
-        if (status) {
-            whereCondition.status = status;
-        }
-
-        // Add debt type filter if provided
-        if (type) {
-            whereCondition.debtType = type;
-        }
-
-        // Include person with search condition if provided
-        const includeCondition = {
-            model: Person,
-            attributes: ['id', 'name']
-        };
-
-        if (search) {
-            includeCondition.where = {
-                name: {
-                    [Op.iLike]: `%${search}%`
-                }
-            };
+        if (period) {
+            const dateFilter = getDateRange(period, null, null);
+            if (dateFilter) {
+                whereClause.date = dateFilter;
+            }
         }
 
         const debts = await Transaction.findAll({
-            where: whereCondition,
-            include: [includeCondition],
+            where: whereClause,
+            include: [
+                {
+                    model: Person,
+                    attributes: ['id', 'name']
+                },
+                {
+                    model: Payment,
+                    as: 'Payments',
+                    attributes: ['amount']
+                }
+            ],
             order: [['date', 'DESC']]
         });
 
-        // Group debts by type
-        const groupedDebts = {
-            borrowed: debts.filter(debt => debt.debtType === 'borrowed'),
-            lent: debts.filter(debt => debt.debtType === 'lent')
-        };
+        // Separate arrays for borrowed and lent debts
+        const borrowedDebts = [];
+        const lentDebts = [];
+
+        // Calculate totals and status counts
+        let totalBorrowed = 0;
+        let totalLent = 0;
+        let totalBorrowedPaid = 0;
+        let totalLentPaid = 0;
+
+        // Payment status counters for borrowed
+        let borrowedPaidCount = 0;
+        let borrowedUnpaidCount = 0;
+        let borrowedPartialCount = 0;
+
+        // Payment status counters for lent
+        let lentPaidCount = 0;
+        let lentUnpaidCount = 0;
+        let lentPartialCount = 0;
+
+        debts.forEach(debt => {
+            const partial_payment = debt.Payments ? 
+                debt.Payments.reduce((sum, payment) => sum + Number(payment.amount), 0) : 0;
+
+            const formattedDebt = {
+                id: debt.id,
+                amount: Number(debt.amount),
+                type: debt.type,
+                debtType: debt.debtType,
+                date: debt.date,
+                description: debt.description,
+                paymentStatus: debt.paymentStatus,
+                Person: debt.Person,
+                partial_payment: partial_payment,
+                remaining_amount: Number(debt.amount) - partial_payment,
+                createdAt: debt.createdAt,
+                updatedAt: debt.updatedAt
+            };
+
+            if (debt.debtType === 'borrowed') {
+                borrowedDebts.push(formattedDebt);
+                totalBorrowed += Number(debt.amount);
+                totalBorrowedPaid += partial_payment;
+
+                // Update borrowed status counts
+                if (debt.paymentStatus === 'paid') {
+                    borrowedPaidCount++;
+                } else if (debt.paymentStatus === 'unpaid') {
+                    borrowedUnpaidCount++;
+                } else if (debt.paymentStatus === 'partial') {
+                    borrowedPartialCount++;
+                }
+            } else if (debt.debtType === 'lent') {
+                lentDebts.push(formattedDebt);
+                totalLent += Number(debt.amount);
+                totalLentPaid += partial_payment;
+
+                // Update lent status counts
+                if (debt.paymentStatus === 'paid') {
+                    lentPaidCount++;
+                } else if (debt.paymentStatus === 'unpaid') {
+                    lentUnpaidCount++;
+                } else if (debt.paymentStatus === 'partial') {
+                    lentPartialCount++;
+                }
+            }
+        });
 
         res.json({
             success: true,
-            data: groupedDebts
+            data: {
+                borrowed: borrowedDebts,
+                lent: lentDebts
+            },
+            summary: {
+                borrowed: {
+                    total: totalBorrowed,
+                    paid: totalBorrowedPaid,
+                    remaining: totalBorrowed - totalBorrowedPaid,
+                    status: {
+                        paid: borrowedPaidCount,
+                        unpaid: borrowedUnpaidCount,
+                        partial: borrowedPartialCount,
+                        total: borrowedDebts.length
+                    }
+                },
+                lent: {
+                    total: totalLent,
+                    paid: totalLentPaid,
+                    remaining: totalLent - totalLentPaid,
+                    status: {
+                        paid: lentPaidCount,
+                        unpaid: lentUnpaidCount,
+                        partial: lentPartialCount,
+                        total: lentDebts.length
+                    }
+                }
+            },
+            filters: {
+                period: period || 'all'
+            }
         });
+
     } catch (error) {
-        console.error('Error fetching debts:', error);
+        console.error('Error fetching all debts:', error);
         res.status(500).json({
             success: false,
             message: error.message

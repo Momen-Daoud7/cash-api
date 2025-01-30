@@ -1,15 +1,15 @@
-const { User, Category, Person, Transaction } = require('../models');
+const { User, Category, Person, Transaction, Payment } = require('../models');
 const bcrypt = require('bcrypt');
 
 async function seedDatabase() {
     try {
         // Create demo user
         const hashedPassword = await bcrypt.hash('123456', 10);
-        // const user = await User.create({
-        //     name: 'أحمد محمد',
-        //     email: 'ahmed@example.com',
-        //     password: hashedPassword
-        // });
+        const user = await User.create({
+            name: 'أحمد محمد',
+            email: 'ahmed@example.com',
+            password: hashedPassword
+        });
 
         // Create categories
         const incomeCategories = await Category.bulkCreate([
@@ -78,7 +78,7 @@ async function seedDatabase() {
         }
         await Transaction.bulkCreate(expenseTransactions);
 
-        // Create debt transactions
+        // Create debt transactions with payments
         const debtTypes = ['borrowed', 'lent'];
         const debtDescriptions = {
             borrowed: ['قرض شخصي', 'سلفة', 'دين مؤقت'],
@@ -88,18 +88,60 @@ async function seedDatabase() {
         const debtTransactions = [];
         for (let i = 0; i < 15; i++) {
             const debtType = debtTypes[Math.floor(Math.random() * 2)];
+            const amount = Math.floor(Math.random() * 2000) + 500;
+            
+            // Randomly decide payment status and paid amount
+            const paymentStatus = Math.random() > 0.7 ? 'paid' : 
+                                Math.random() > 0.5 ? 'partial' : 'unpaid';
+            
             debtTransactions.push({
-                amount: Math.floor(Math.random() * 2000) + 500,
+                amount: amount,
                 type: 'debt',
                 debtType: debtType,
-                status: Math.random() > 0.7 ? 'paid' : 'unpaid',  // Required for debt
+                paymentStatus: paymentStatus,
                 date: getRandomDate(),
                 description: debtDescriptions[debtType][Math.floor(Math.random() * 3)],
                 PersonId: people[Math.floor(Math.random() * people.length)].id,
                 UserId: 1
             });
         }
-        await Transaction.bulkCreate(debtTransactions);
+        const createdDebts = await Transaction.bulkCreate(debtTransactions);
+
+        // Create payments for debt transactions
+        const payments = [];
+        for (const debt of createdDebts) {
+            if (debt.paymentStatus !== 'unpaid') {
+                const numberOfPayments = Math.floor(Math.random() * 3) + 1;
+                const totalAmount = Number(debt.amount);
+                
+                for (let i = 0; i < numberOfPayments; i++) {
+                    let paymentAmount;
+                    if (debt.paymentStatus === 'paid') {
+                        // For paid debts, divide the total amount among payments
+                        paymentAmount = i === numberOfPayments - 1 ? 
+                            totalAmount - payments.filter(p => p.debtId === debt.id)
+                                .reduce((sum, p) => sum + p.amount, 0) :
+                            Math.floor(totalAmount / numberOfPayments);
+                    } else {
+                        // For partial payments, create random amounts
+                        paymentAmount = Math.floor(totalAmount * (Math.random() * 0.4 + 0.1));
+                    }
+
+                    const paymentDate = new Date(debt.date);
+                    paymentDate.setDate(paymentDate.getDate() + (i * 15)); // Add 15 days between payments
+
+                    payments.push({
+                        debtId: debt.id,
+                        amount: paymentAmount,
+                        paymentDate: paymentDate,
+                        notes: `دفعة ${i + 1}`,
+                        createdAt: new Date(),
+                        updatedAt: new Date()
+                    });
+                }
+            }
+        }
+        await Payment.bulkCreate(payments);
 
         console.log('Database seeded successfully!');
         console.log('Demo user credentials:');

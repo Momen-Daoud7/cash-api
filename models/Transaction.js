@@ -42,6 +42,10 @@ const Transaction = sequelize.define('Transaction', {
     description: {
         type: DataTypes.TEXT,
         allowNull: true
+    },
+    paymentStatus: {
+        type: DataTypes.ENUM('paid', 'unpaid', 'partial'),
+        defaultValue: 'unpaid'
     }
 }, {
     timestamps: true,

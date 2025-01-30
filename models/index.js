@@ -3,21 +3,42 @@ const Category = require('./Category');
 const Transaction = require('./Transaction');
 const Person = require('./Person');
 const User = require('./User');
+const Payment = require('./Payment');
 
 // Define associations
-Category.hasMany(Transaction);
+
+User.hasMany(Category);
+Category.belongsTo(User);
+
+Category.hasMany(Transaction, {
+    onDelete: 'RESTRICT'  // Prevent deletion if transactions exist
+});
 Transaction.belongsTo(Category);
 
-Person.hasMany(Transaction);
+// Person associations without user relationship
+Person.hasMany(Transaction, {
+    onDelete: 'RESTRICT'  // Prevent deletion if transactions exist
+});
 Transaction.belongsTo(Person);
 
-// Add user associations if needed
 User.hasMany(Transaction);
 Transaction.belongsTo(User);
+
+// Payment associations
+Transaction.hasMany(Payment, {
+    foreignKey: 'debtId',
+    as: 'Payments',
+    onDelete: 'CASCADE'  // When a debt is deleted, delete its payments
+});
+Payment.belongsTo(Transaction, {
+    foreignKey: 'debtId',
+    as: 'Transaction'
+});
 
 module.exports = {
     Category,
     Transaction,
     Person,
-    User
+    User,
+    Payment
 }; 
