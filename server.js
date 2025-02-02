@@ -24,7 +24,7 @@ app.use(express.json());
 app.use('/api/auth', userRoutes);
 app.use('/api', paymentRoutes);
 app.use('/api/transactions', transactionRoutes);
-app.use('/api/categories', categoryRoutes);
+app.use('/api/categories', categoryRoutes); 
 app.use('/api/persons', personRoutes);
 
 

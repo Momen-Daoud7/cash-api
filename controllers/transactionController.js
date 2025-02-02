@@ -214,8 +214,9 @@ const getDebts = async (req, res) => {
 const update = async (req, res) => {
     try {
         const { id } = req.params;
-        const updates = req.body;
-        
+        const { date, type, amount, categoryId, personId, debtType, status } = req.body;
+
+        // Find the transaction
         const transaction = await Transaction.findOne({
             where: { 
                 id,
@@ -230,16 +231,83 @@ const update = async (req, res) => {
             });
         }
 
-        await transaction.update(updates);
+        // Prepare update object
+        const updateData = {
+            date,
+            type,
+            amount
+        };
+
+        // Handle debt-specific updates
+        if (type === 'debt') {
+            if (!personId) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Person ID is required for debt transactions'
+                });
+            }
+            updateData.PersonId = personId;
+            updateData.debtType = debtType;
+            updateData.paymentStatus = status;
+        }
+        // Handle expense/income updates
+        else if (type === 'expense' || type === 'income') {
+            if (!categoryId) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Category ID is required for expense/income transactions'
+                });
+            }
+            updateData.CategoryId = categoryId;
+        }
+
+        // Update the transaction
+        await transaction.update(updateData);
+
+        // Fetch updated transaction with associations
+        const updatedTransaction = await Transaction.findOne({
+            where: { id },
+            include: [
+                {
+                    model: Person,
+                    attributes: ['id', 'name']
+                },
+                {
+                    model: Category,
+                    attributes: ['id', 'name']
+                },
+                {
+                    model: Payment,
+                    as: 'Payments',
+                    attributes: ['id', 'amount']
+                }
+            ]
+        });
+
+        // Calculate partial payments for debt transactions
+        let responseData = {
+            ...updatedTransaction.toJSON()
+        };
+
+        if (type === 'debt') {
+            const partial_payment = updatedTransaction.Payments ? 
+                updatedTransaction.Payments.reduce((sum, payment) => sum + Number(payment.amount), 0) : 0;
+            
+            responseData.partial_payment = partial_payment;
+            responseData.remaining_amount = Number(amount) - partial_payment;
+        }
 
         res.json({
             success: true,
-            data: transaction
+            message: 'Transaction updated successfully',
+            data: responseData
         });
+
     } catch (error) {
+        console.error('Error updating transaction:', error);
         res.status(500).json({
             success: false,
-            error: error.message
+            message: error.message
         });
     }
 };
